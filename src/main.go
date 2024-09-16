@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	_ "github.com/lib/pq"
 	"github.com/segmentio/kafka-go"
@@ -17,7 +18,7 @@ type Order struct {
 }
 
 func main() {
-    // db := GetDB()
+	db := GetDB()
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   []string{"localhost:29092"},
@@ -26,17 +27,28 @@ func main() {
 		MaxBytes:  10e6,
 	})
 
+	var counter = 0
+
 	for {
 		msg, err := reader.ReadMessage(context.Background())
 		if err != nil {
-            fmt.Print(err)
+			fmt.Print(err)
 			break
 		}
 
-        fmt.Printf("%s %s", msg.Key, msg.Value)
+		fmt.Printf("%s %s\n", msg.Key, msg.Value)
+
+		if err := db.QueryRow(`insert into "order"(id, json_data) values($1, $2)`, strconv.Itoa(counter), msg.Value).Err(); err != nil {
+            fmt.Printf("couldn't write to database: %s\n", err)
+		}
+
+		counter++
+		test()
 	}
 
-    defer reader.Close()
+	if err := reader.Close(); err != nil {
+		log.Fatal("failed to close reader:", err)
+	}
 }
 
 func GetDB() *sql.DB {
@@ -101,27 +113,6 @@ func test() {
 			fmt.Printf("Fail to read row:\n%s", err)
 		}
 
-		print(id)
-	}
-
-	conn, err := kafka.Dial("tcp", "localhost:29092")
-
-	if err != nil {
-		panic(err.Error())
-	}
-	defer conn.Close()
-
-	partitions, err := conn.ReadPartitions()
-	if err != nil {
-		panic(err.Error())
-	}
-
-	m := map[string]struct{}{}
-
-	for _, p := range partitions {
-		m[p.Topic] = struct{}{}
-	}
-	for k := range m {
-		fmt.Println(k)
+		fmt.Printf("%s %s\n", id, json)
 	}
 }
