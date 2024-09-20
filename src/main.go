@@ -2,24 +2,78 @@ package main
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
-	"os"
-	"strconv"
+    "l0/types"
+    "l0/ui"
+	"math/rand"
+	"reflect"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/segmentio/kafka-go"
 )
 
-type Order struct {
-	id      string
-	jsonStr string
+
+func generateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	seed := rand.NewSource(time.Now().UnixNano())
+	random := rand.New(seed)
+
+	result := make([]byte, length)
+	for i := range result {
+		result[i] = charset[random.Intn(len(charset))]
+	}
+	return string(result)
 }
 
-func main() {
-	db := GetDB()
+func RandomValidOrder() string {
+	orderMap := make(map[string]string)
 
+	for _, field := range types.RequiredOrderFields {
+		orderMap[field] = generateRandomString(10)
+	}
+
+	enc, err := json.Marshal(orderMap)
+	if err != nil {
+		fmt.Println("You are an idiot")
+	}
+
+	return string(enc)
+
+}
+
+func OrderFromMessage(message []byte) (*types.Order, error) {
+	var jsonMap map[string]any
+	err := json.Unmarshal(message, &jsonMap)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !types.IsValidOrder(jsonMap) {
+		return nil, errors.New("Not a valid order")
+	}
+
+	if _, ok := jsonMap[types.OrderIdJsonKey].(string); !ok {
+		return nil, errors.New(fmt.Sprint("Expected order_uid to be string, but got:", reflect.TypeOf(jsonMap[types.OrderIdJsonKey])))
+	}
+
+	return &types.Order{
+		Id:      jsonMap[types.OrderIdJsonKey].(string),
+		JsonStr: string(message),
+	}, nil
+
+}
+
+
+func ProcessOrder(order *types.Order, db *types.DB, cache *types.Cache) {
+	db.Put(order)
+	cache.Put(order)
+}
+
+func GetKafkaReader() *kafka.Reader {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   []string{"localhost:29092"},
 		Topic:     "orders",
@@ -27,92 +81,112 @@ func main() {
 		MaxBytes:  10e6,
 	})
 
-	var counter = 0
+	return reader
+}
+
+func GetKafkaWriter() *kafka.Writer {
+	writer := kafka.Writer{
+		Addr:     kafka.TCP("localhost:29092"),
+		Topic:    "orders",
+		Balancer: &kafka.LeastBytes{},
+	}
+
+	return &writer
+}
+func ProcessMessage(msg []byte, ctx *types.LocalContext) {
+	order, err := OrderFromMessage(msg)
+
+	if err != nil {
+		fmt.Println("Received invalid order")
+		fmt.Println(msg)
+		return
+	}
+
+	ctx.Db.Put(order)
+	ctx.Cache.Put(order)
+}
+
+func RunConsumerPipeline(ctx *types.LocalContext) {
+	reader := GetKafkaReader()
 
 	for {
-		msg, err := reader.ReadMessage(context.Background())
+		msg, err := reader.ReadMessage(*ctx.Reader_ctx)
+
 		if err != nil {
-			fmt.Print(err)
-			break
+			if errors.Is(err, context.Canceled) {
+				fmt.Println("Conumer was stopped")
+				break
+			}
+			fmt.Printf("Failed to read message: %s\n", err)
+			continue
 		}
 
-		fmt.Printf("%s %s\n", msg.Key, msg.Value)
-
-		if err := db.QueryRow(`insert into "order"(id, json_data) values($1, $2)`, strconv.Itoa(counter), msg.Value).Err(); err != nil {
-            fmt.Printf("couldn't write to database: %s\n", err)
-		}
-
-		counter++
-		test()
+		ProcessMessage(msg.Value, ctx)
+		fmt.Println(ctx.Cache)
+		fmt.Println(ctx.Db.GetAll())
 	}
 
-	if err := reader.Close(); err != nil {
-		log.Fatal("failed to close reader:", err)
-	}
+	reader.Close()
+	ctx.WaitGroup.Done()
 }
 
-func GetDB() *sql.DB {
-	user := "user"
-	password := "password"
-	host := "localhost"
-	port := "55432"
+func WaitForExit() {
+	var inp string
 
-	conntectStr := fmt.Sprintf(
-		"user='%s' password='%s' host='%s' port='%s' sslmode=disable dbname=orders",
-		user,
-		password,
-		host,
-		port,
-	)
-
-	db, err := sql.Open("postgres", conntectStr)
-	if err != nil {
-		log.Fatal(fmt.Sprintf("Fail to connect to db:\n%s", err))
+	for {
+		fmt.Scanln(&inp)
+		if inp == "exit" {
+			return
+		}
 	}
-	return db
+
 }
 
-func test() {
-	user := os.Getenv("POSTGRES_USER")
-	password := os.Getenv("POSTGRES_PASSWORD")
-	host := os.Getenv("POSTGRES_HOST")
-	port := os.Getenv("POSTGRES_PORT")
-
-	user = "user"
-	password = "password"
-	host = "localhost"
-	port = "55432"
-
-	conntectStr := fmt.Sprintf(
-		"user='%s' password='%s' host='%s' port='%s' sslmode=disable dbname=orders",
-		user,
-		password,
-		host,
-		port,
-	)
-
-	db, err := sql.Open("postgres", conntectStr)
-	if err != nil {
-		log.Fatal(fmt.Sprintf("Fail to connect to db:\n%s", err))
+func RunProducerPipeline(ctx *types.LocalContext) {
+	writer := &kafka.Writer{
+		Addr:     kafka.TCP("localhost:29092"),
+		Topic:    "orders",
+		Balancer: &kafka.LeastBytes{},
 	}
 
-	defer db.Close()
+	for {
+		err := writer.WriteMessages(*ctx.Writer_ctx,
+			kafka.Message{
+				Value: []byte(RandomValidOrder()),
+			},
+		)
 
-	rows, err := db.Query(`SELECT * FROM "order"`)
-	if err != nil {
-		log.Fatal(fmt.Sprintf("Fail to read data:\n%s", err))
-	}
-
-	defer rows.Close()
-
-	for rows.Next() {
-		var id string
-		var json string
-
-		if err := rows.Scan(&id, &json); err != nil {
-			fmt.Printf("Fail to read row:\n%s", err)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				fmt.Println("Producer was stopped")
+				break
+			}
+			fmt.Printf("Couldn't write message: %s\n", err)
 		}
 
-		fmt.Printf("%s %s\n", id, json)
+		time.Sleep(time.Duration(time.Duration.Seconds(10)))
 	}
+	writer.Close()
+	ctx.WaitGroup.Done()
+}
+
+func main() {
+	readerCtx, cancelRReader := context.WithCancel(context.Background())
+	writerCtx, cancelWReader := context.WithCancel(context.Background())
+	ctx := types.GetLocalContext(&readerCtx, &writerCtx)
+
+	ctx.WaitGroup.Add(1)
+	go RunConsumerPipeline(&ctx)
+
+	ctx.WaitGroup.Add(1)
+	go RunProducerPipeline(&ctx)
+
+	go ui.StartUI(&ctx)
+
+	WaitForExit()
+
+	cancelWReader()
+	cancelRReader()
+
+	ctx.WaitGroup.Wait()
 }
