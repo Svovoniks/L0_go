@@ -6,12 +6,33 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"os"
 	"reflect"
 	"sync"
 
 	_ "github.com/lib/pq"
+	"github.com/rs/zerolog"
 )
+
+const LogFile = "log.file"
+
+var (
+	Logger zerolog.Logger
+)
+
+func SetupLogger() (*os.File, error) {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+	writer, err := os.OpenFile(LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+	if err != nil {
+        writer = os.Stdout
+		Logger.Err(err).Str("filename", LogFile).Msg("Couldn't redirect logger to file")
+	}
+
+	Logger = zerolog.New(writer).With().Timestamp().Logger()
+	return writer, err
+}
 
 type LocalContext struct {
 	Db         *DB
@@ -109,7 +130,7 @@ func OrderFromMessage(message []byte) (*Order, error) {
 }
 
 type DB struct {
-	db *sql.DB
+	Db *sql.DB
 }
 
 func GetDB() *DB {
@@ -128,25 +149,41 @@ func GetDB() *DB {
 
 	db, err := sql.Open("postgres", conntectStr)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Fail to connect to db:\n%s", err))
+		Logger.Fatal().Msg(fmt.Sprintf("Fail to connect to db:\n%s", err))
 	}
+	db.SetMaxOpenConns(20)
+
+	db.SetMaxIdleConns(10)
+
 	return &DB{
-		db: db,
+		Db: db,
 	}
 }
 
 func (d *DB) Put(order *Order) bool {
-	if err := d.db.QueryRow(`insert into "order"(id, json_data) values($1, $2)`, order.Id, order.JsonStr).Err(); err != nil {
+	// not QueryRow because it spawans active connections
+	// it overwhelms db and i couldn't figure out how to close them
+
+	row, err := d.Db.Query(`insert into "order"(id, json_data) values($1, $2) on conflict (id) do update set json_data=$2`, order.Id, order.JsonStr)
+	ans := true
+
+	if err != nil {
 		fmt.Printf("couldn't write to database: %s\n", err)
-		return false
+		ans = false
 	}
-	return true
+
+	if row != nil {
+		row.Close()
+	}
+
+	return ans
 }
 
 func (d *DB) Get(id string) (order *Order) {
-	row, err := d.db.Query(`select json_data from "orders" where id=$1`, id)
+	row, err := d.Db.Query(`select json_data from "orders" where id=$1`, id)
 
 	if err != nil {
+		fmt.Println("db says no")
 		return nil
 	}
 
@@ -167,7 +204,7 @@ func (d *DB) Get(id string) (order *Order) {
 }
 
 func (d *DB) GetAll() (orders []Order) {
-	rows, err := d.db.Query(`SELECT * FROM "order"`)
+	rows, err := d.Db.Query(`SELECT * FROM "order"`)
 	if err != nil {
 		return nil
 	}

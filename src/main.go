@@ -5,16 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-    "l0/types"
-    "l0/ui"
+	"l0/types"
+	"l0/ui"
 	"math/rand"
 	"reflect"
+	"runtime"
 	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/segmentio/kafka-go"
 )
-
 
 func generateRandomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -36,8 +36,9 @@ func RandomValidOrder() string {
 	}
 
 	enc, err := json.Marshal(orderMap)
+
 	if err != nil {
-		fmt.Println("You are an idiot")
+		types.Logger.Fatal().Err(err).Msg("Shoud never happen")
 	}
 
 	return string(enc)
@@ -49,15 +50,27 @@ func OrderFromMessage(message []byte) (*types.Order, error) {
 	err := json.Unmarshal(message, &jsonMap)
 
 	if err != nil {
+		types.Logger.Warn().
+			Str("kafka_message", string(message)).
+			Msg("Received invalid Json")
 		return nil, err
 	}
 
 	if !types.IsValidOrder(jsonMap) {
+		types.Logger.Warn().
+			Str("kafka_message", string(message)).
+			Msg("Received invalid Order")
 		return nil, errors.New("Not a valid order")
 	}
 
 	if _, ok := jsonMap[types.OrderIdJsonKey].(string); !ok {
-		return nil, errors.New(fmt.Sprint("Expected order_uid to be string, but got:", reflect.TypeOf(jsonMap[types.OrderIdJsonKey])))
+		uid_err := errors.New(fmt.Sprint("Expected order_uid to be string, but got:", reflect.TypeOf(jsonMap[types.OrderIdJsonKey])))
+
+		types.Logger.Warn().
+			Str("kafka_message", string(message)).
+			Err(uid_err).
+			Msg("Received order with invalid 'order_uid'")
+		return nil, uid_err
 	}
 
 	return &types.Order{
@@ -66,7 +79,6 @@ func OrderFromMessage(message []byte) (*types.Order, error) {
 	}, nil
 
 }
-
 
 func ProcessOrder(order *types.Order, db *types.DB, cache *types.Cache) {
 	db.Put(order)
@@ -85,20 +97,22 @@ func GetKafkaReader() *kafka.Reader {
 }
 
 func GetKafkaWriter() *kafka.Writer {
-	writer := kafka.Writer{
-		Addr:     kafka.TCP("localhost:29092"),
+	writer := kafka.NewWriter(kafka.WriterConfig{
+		Brokers:  []string{"localhost:29092"},
 		Topic:    "orders",
 		Balancer: &kafka.LeastBytes{},
-	}
+	})
 
-	return &writer
+	return writer
 }
 func ProcessMessage(msg []byte, ctx *types.LocalContext) {
 	order, err := OrderFromMessage(msg)
 
 	if err != nil {
-		fmt.Println("Received invalid order")
-		fmt.Println(msg)
+		types.Logger.Warn().
+			Err(err).
+			Str("kafka_message", string(msg)).
+			Msg("Skipping message")
 		return
 	}
 
@@ -114,16 +128,19 @@ func RunConsumerPipeline(ctx *types.LocalContext) {
 
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
-				fmt.Println("Conumer was stopped")
+				types.Logger.Info().
+					Msg("Consumer was stopped")
+				fmt.Println("Consumer was stopped")
 				break
 			}
-			fmt.Printf("Failed to read message: %s\n", err)
+
+			types.Logger.Info().
+				Err(err).
+				Msg("Couldn't read message, skipping")
 			continue
 		}
 
 		ProcessMessage(msg.Value, ctx)
-		fmt.Println(ctx.Cache)
-		fmt.Println(ctx.Db.GetAll())
 	}
 
 	reader.Close()
@@ -136,10 +153,11 @@ func WaitForExit() {
 	for {
 		fmt.Scanln(&inp)
 		if inp == "exit" {
+			types.Logger.Info().
+				Msg("Received exit request")
 			return
 		}
 	}
-
 }
 
 func RunProducerPipeline(ctx *types.LocalContext) {
@@ -158,21 +176,31 @@ func RunProducerPipeline(ctx *types.LocalContext) {
 
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
+				types.Logger.Info().
+					Msg("Producer was stopped")
 				fmt.Println("Producer was stopped")
 				break
 			}
-			fmt.Printf("Couldn't write message: %s\n", err)
+			types.Logger.Warn().
+				Err(err).
+				Msg("Couldn't write message")
 		}
 
-		time.Sleep(time.Duration(time.Duration.Seconds(10)))
+		time.Sleep(time.Duration(time.Duration.Seconds(5)))
 	}
 	writer.Close()
 	ctx.WaitGroup.Done()
 }
 
 func main() {
-	readerCtx, cancelRReader := context.WithCancel(context.Background())
-	writerCtx, cancelWReader := context.WithCancel(context.Background())
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
+	if writer, err := types.SetupLogger(); err == nil {
+		defer writer.Close()
+	}
+
+	readerCtx, cancelReader := context.WithCancel(context.Background())
+	writerCtx, cancelWriter := context.WithCancel(context.Background())
 	ctx := types.GetLocalContext(&readerCtx, &writerCtx)
 
 	ctx.WaitGroup.Add(1)
@@ -185,8 +213,9 @@ func main() {
 
 	WaitForExit()
 
-	cancelWReader()
-	cancelRReader()
+	cancelReader()
+	cancelWriter()
 
 	ctx.WaitGroup.Wait()
+	ctx.Db.Db.Close()
 }
