@@ -1,0 +1,20 @@
+
+{"level":"info","time":1727346602,"message":"Logger setup"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346602,"message":"Couldn't write message"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346602,"message":"Skipping message"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346612,"message":"Couldn't write message"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346612,"message":"Skipping message"}
+{"level":"info","time":1727346623,"message":"Logger setup"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346623,"message":"Couldn't write message"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346623,"message":"Skipping message"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346628,"message":"Couldn't write message"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346628,"message":"Skipping message"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346633,"message":"Couldn't write message"}
+{"level":"warn","error":"dial tcp [::1]:29092: connect: connection refused","time":1727346633,"message":"Skipping message"}
+{"level":"info","time":1727346636,"message":"Received exit request"}
+{"level":"info","time":1727346638,"message":"Producer was stopped"}
+{"level":"info","time":1727346638,"message":"Shutting down producer pipeline"}
+{"level":"info","time":1727346724,"message":"Logger setup"}
+{"level":"info","time":1727346996,"message":"Received exit request"}
+{"level":"info","time":1727346996,"message":"Producer was stopped"}
+{"level":"info","time":1727346996,"message":"Shutting down producer pipeline"}
