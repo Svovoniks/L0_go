@@ -1,0 +1,10 @@
+
+{
+    "DbPassword": "<DbPassword>",
+    "DbUser": "<DbUser>",
+    "DbHost": "<DbHost>",
+    "DbPort": "<DbPort>",
+    "KafkaHost": "<KafkaHost>",
+    "KafkaPort": "<KafkaPort>",
+    "KafkaTopic": "<KafkaTopic>"
+}

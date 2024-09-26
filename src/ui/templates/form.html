@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simple Form</title>
 </head>
+
 <body>
     <h1>Enter Order ID</h1>
     <form action="/submit" method="POST">
@@ -12,6 +14,14 @@
         <input type="text" id="input_id" name="input_id" required>
         <button type="submit">Show</button>
     </form>
+    <h1>Available orders</h1>
+    <ul>
+        {{ range .items }}
+        <li>{{ . }}</li>
+        {{ else }}
+        <li>No items found</li>
+        {{ end }}
+    </ul>
 </body>
-</html>
 
+</html>
