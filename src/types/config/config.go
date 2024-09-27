@@ -17,7 +17,7 @@ type Config struct {
 }
 
 func GetConfig() (*Config, error) {
-	data, err := os.ReadFile("/home/svovoniks/Desktop/L0_go/src/cfg.json")
+	data, err := os.ReadFile("cfg.json")
 	if err != nil {
 		logger.Logger.Warn().
 			Msg("Config file '.cfg' not found")

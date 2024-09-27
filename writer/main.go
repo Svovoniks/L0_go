@@ -11,7 +11,8 @@ import (
 
 func RunProducerPipeline(writer *kafka_writer.KafkaWriter, wg *sync.WaitGroup) {
 	for {
-		err := writer.ProduceMessage(_order.RandomValidOrder())
+        msg := _order.RandomValidOrder()
+		err := writer.ProduceMessage(msg)
 
 		if err != nil {
 			if writer.Stopped {
@@ -20,6 +21,10 @@ func RunProducerPipeline(writer *kafka_writer.KafkaWriter, wg *sync.WaitGroup) {
 			logger.Logger.Warn().
 				Err(err).
 				Msg("Skipping message")
+		} else {
+			logger.Logger.Info().
+                Str("message", msg).
+				Msg("Wrote message")
 		}
 
 		time.Sleep(5 * time.Second)
@@ -47,7 +52,7 @@ func WaitForExit() {
 }
 
 func main() {
-    logger.SetupLogger()
+	logger.SetupLogger()
 	writer := kafka_writer.GetKafkaWriter(kafka_writer.KafkaWriterContext{
 		Host:  "localhost",
 		Port:  "29092",
