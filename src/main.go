@@ -8,7 +8,6 @@ import (
 	"l0/types/logger"
 	_order "l0/types/order"
 	"l0/ui"
-	"runtime"
 
 	_ "github.com/lib/pq"
 )
@@ -38,7 +37,7 @@ func RunConsumerPipeline(ctx *local_context.LocalContext) {
 			logger.Logger.Warn().
 				Err(err).
 				Msg("Skipping message")
-            continue
+			continue
 		}
 
 		ProcessMessage(msg.Value, ctx)
@@ -70,8 +69,6 @@ func main() {
 		fmt.Println("No config, exiting...")
 		return
 	}
-
-	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	if writer, err := logger.SetupLogger(); err == nil {
 		defer writer.Close()
