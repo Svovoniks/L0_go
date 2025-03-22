@@ -1,6 +1,6 @@
-to run some tests you need to copy the 'cfg.json' file to their directory
+To run some tests you need to copy the 'cfg.json' file to their directory
 
-# Order processor
+# Order cacher
 
 This project is a Go-based application that integrates with Kafka and PostgreSQL to process and manage orders. It includes a producer, consumer, and a simple web UI for interacting with the data.
 
